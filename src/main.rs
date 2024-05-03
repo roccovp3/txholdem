@@ -1,4 +1,3 @@
-use core::num;
 use std::io;
 use rand::Rng;
 use rand::thread_rng;
@@ -40,6 +39,7 @@ enum Blind {
 
 #[derive(Clone)]
 struct Player {
+    id: u32,
     hand: Hand,
     chips: i32,
     blind: Blind,
@@ -50,6 +50,7 @@ struct Player {
 impl Player {
     fn new() -> Self {
         return Self {
+            id: 0,
             hand: Hand {card1: (Card::NONECARD, Suit::NONESUIT), card2: (Card::NONECARD, Suit::NONESUIT)},
             chips: 0,
             blind: Blind::NONEBLIND,
@@ -65,8 +66,73 @@ struct Hand {
     card2: (Card, Suit),
 }
 
-fn betting_round(starting_player: usize, num_players: usize, players: &mut Vec<Player>) {
+struct Table {
+    pot: i32,
+    flop1: (Card, Suit),
+    flop2: (Card, Suit),
+    flop3: (Card, Suit),
+    turn1: (Card, Suit),
+    river1: (Card, Suit),
+}
+
+impl Table {
+    fn new() -> Self {
+        return Self {
+            pot: 0,
+            flop1: (Card::NONECARD, Suit::NONESUIT),
+            flop2: (Card::NONECARD, Suit::NONESUIT),
+            flop3: (Card::NONECARD, Suit::NONESUIT),
+            turn1: (Card::NONECARD, Suit::NONESUIT),
+            river1: (Card::NONECARD, Suit::NONESUIT),
+        }
+    }
+}
+
+fn print_game(players: &Vec<Player>, table: &Table) {
+    for (i, player) in players.iter().enumerate() {
+        println!("Player {}\nHand: {:?}{:?} {:?}{:?}\nChips: {}\nBet: {}\n", i, player.hand.card1.0, player.hand.card1.1, player.hand.card2.0, player.hand.card2.1, player.chips, player.bet);
+    }
+    println!("Table: {:?}{:?}, {:?}{:?}, {:?}{:?}, {:?}{:?}, {:?}{:?}\nPot: {}", 
+        table.flop1.0, 
+        table.flop1.1, 
+        table.flop2.0, 
+        table.flop2.1, 
+        table.flop3.0, 
+        table.flop3.1, 
+        table.turn1.0, 
+        table.turn1.1, 
+        table.river1.0, 
+        table.river1.1, 
+        table.pot
+    );
+}
+
+fn print_players(players: &Vec<Player>) {
+    for (i, player) in players.iter().enumerate() {
+        println!("Player {}\nHand: {:?}{:?} {:?}{:?}\nChips: {}\nBet: {}\n", i, player.hand.card1.0, player.hand.card1.1, player.hand.card2.0, player.hand.card2.1, player.chips, player.bet);
+    }
+}
+
+fn print_table(table: &Table) {
+    println!("Table: {:?}{:?}, {:?}{:?}, {:?}{:?}, {:?}{:?}, {:?}{:?}\nPot: {}", 
+        table.flop1.0, 
+        table.flop1.1, 
+        table.flop2.0, 
+        table.flop2.1, 
+        table.flop3.0, 
+        table.flop3.1, 
+        table.turn1.0, 
+        table.turn1.1, 
+        table.river1.0, 
+        table.river1.1, 
+        table.pot
+    );
+}
+
+fn betting_round(starting_player: usize, num_players: usize, players: &mut Vec<Player>,  table: &mut Table) {
     let mut i = 0;
+    let mut in_players: Vec<Player> = players.clone();
+
     loop {
         let current_player = (i + starting_player) % num_players;
 
@@ -81,27 +147,35 @@ fn betting_round(starting_player: usize, num_players: usize, players: &mut Vec<P
         let bet: i32 = bet.trim().parse::<i32>().expect("Please type a number!");
 
         if bet == -1 {
-            players[current_player].folded = true;
+            in_players[current_player].folded = true;
+            in_players[current_player].bet = 0;
+            in_players.remove(current_player);
         } else {
-            players[current_player].bet = bet;
+            in_players[current_player].bet += bet;
+            in_players[current_player].chips -= bet;
         }
 
-        /* Check if bidding round is over */
+        /* Check if betting round is over */
         let bidding_over;
         let mut different_bets = false;
         for j in 0..num_players {
             // TODO: fix this condition
-            if (players[j].bet != players[(j + 1) % num_players].bet) && !players[j].folded {
+            if (in_players[j].bet != in_players[(j + 1) % num_players].bet) {
                 different_bets = true;
             }
         }
-        bidding_over = !different_bets;
+        bidding_over = !different_bets && (i >= num_players - 1);
 
         if bidding_over {
+            for j in 0..num_players {
+                table.pot += in_players[j].bet;
+                in_players[j].bet = 0;
+                players[in_players[j].id as usize] = in_players[j].clone();
+            }
             break;
-        } 
-
+        }
         i += 1;
+        print_players(&in_players);
     }
 }
 
@@ -161,6 +235,8 @@ fn main() {
         (Card::KING, Suit::SPADES),
     );
 
+    let mut table: Table = Table::new();
+
     println!("Enter the number of players:");
 
     let mut num_players = String::new();
@@ -197,16 +273,15 @@ fn main() {
     
     /* deal 2 cards to each player, initial chips */
     for (i, player) in players.iter_mut().enumerate() {
+        player.id = i as u32;
         player.chips = 500;
         player.hand.card1 = deck.pop().unwrap();
         player.hand.card2 = deck.pop().unwrap();
-
-        println!("Player {}\nHand: {:?}{:?} {:?}{:?}\nChips: {}\n Bet: {}\n", i, player.hand.card1.0, player.hand.card1.1, player.hand.card2.0, player.hand.card2.1, player.chips, player.bet);
     }
 
     /* Decide blinds */
-    let mut small_blind_player = rand::thread_rng().gen_range(0..num_players);
-    let mut big_blind_player = (small_blind_player + 1) % num_players;
+    let small_blind_player = rand::thread_rng().gen_range(0..num_players);
+    let big_blind_player = (small_blind_player + 1) % num_players;
     players[small_blind_player].blind = Blind::SMALL;
     players[big_blind_player].blind = Blind::BIG;
     
@@ -216,34 +291,42 @@ fn main() {
     players[big_blind_player].bet += big_blind;
     players[big_blind_player].chips -= big_blind;
 
+    print_players(&mut players);
+
     /* Go through rest of betting round */
-    betting_round(big_blind_player + 1, num_players, &mut players);
-    
+    betting_round(big_blind_player + 1, num_players, &mut players, &mut table);
+
     /* Flop */
     deck.pop().unwrap(); // burn
-    let flop1 = deck.pop().unwrap();
-    let flop2 = deck.pop().unwrap();
-    let flop3 = deck.pop().unwrap();
-    println!("{:?}{:?}, {:?}{:?}, {:?}{:?}", flop1.0, flop1.1, flop2.0, flop2.1, flop3.0, flop3.1);
+    table.flop1 = deck.pop().unwrap();
+    table.flop2 = deck.pop().unwrap();
+    table.flop3 = deck.pop().unwrap();
+    print_table(&table);
 
     /* Post-flop betting round */
-    betting_round(small_blind_player, num_players, &mut players);
+    betting_round(small_blind_player, num_players, &mut players,  &mut table);
+
+    print_players(&players);
 
     /* Turn */
     deck.pop().unwrap(); // burn
-    let turn1 = deck.pop().unwrap();
-    println!("Table: {:?}{:?}, {:?}{:?}, {:?}{:?}, {:?}{:?}", flop1.0, flop1.1, flop2.0, flop2.1, flop3.0, flop3.1, turn1.0, turn1.1);
+    table.turn1 = deck.pop().unwrap();
+    print_table(&table);
 
     /* Post-turn betting round */
-    betting_round(small_blind_player, num_players, &mut players);
+    betting_round(small_blind_player, num_players, &mut players,  &mut table);
+
+    print_players(&players);
 
     /* River */
     deck.pop().unwrap(); // burn
-    let river1 = deck.pop().unwrap();
-    println!("Table: {:?}{:?}, {:?}{:?}, {:?}{:?}, {:?}{:?}. {:?}{:?}", flop1.0, flop1.1, flop2.0, flop2.1, flop3.0, flop3.1, turn1.0, turn1.1, river1.0, river1.1);
+    table.river1 = deck.pop().unwrap();
+    print_table(&table);
 
     /* Final betting round */
-    betting_round(small_blind_player, num_players, &mut players);
+    betting_round(small_blind_player, num_players, &mut players, &mut table);
+
+    print_players(&players);
 
     /* Evaluate hands */
     todo!();
